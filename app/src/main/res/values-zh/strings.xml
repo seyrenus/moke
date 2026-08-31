@@ -367,4 +367,30 @@
     <string name="include_prerelease">包含预览版</string>
     <string name="include_prerelease_sub">检查更新时也算上 rc 预览版。预览版用于抢先验证新功能，可能不稳定。</string>
     <string name="github_repo">GitHub 仓库</string>
+
+    <!-- 文件查看器 / diff 查看 -->
+    <string name="viewer_diff_title">未提交改动</string>
+    <string name="viewer_repo_diff">查看未提交改动</string>
+    <string name="viewer_file_diff">查看此文件的改动</string>
+    <string name="viewer_binary">二进制文件（%1$s），无法预览</string>
+    <string name="viewer_truncated_head">文件过大，仅显示前 %1$s；完整内容请下载查看</string>
+    <string name="viewer_diff_truncated">输出过大，仅显示部分改动</string>
+    <string name="viewer_untracked_more">另有 %1$d 个未跟踪文件未展开</string>
+    <string name="viewer_no_changes">没有未提交改动</string>
+    <string name="viewer_file_no_changes">该文件没有未提交改动</string>
+    <string name="viewer_not_a_repo">不在 git 仓库中（或远端未安装 git）</string>
+    <string name="viewer_exec_failed">无法在远端执行 git 命令</string>
+    <string name="viewer_disconnected">文件连接已断开，请重新进入文件页</string>
+    <string name="viewer_no_newline">文件末尾没有换行符</string>
+    <string name="viewer_search">搜索</string>
+    <string name="viewer_search_hint">在文件中搜索</string>
+    <string name="viewer_search_prev">上一个匹配</string>
+    <string name="viewer_search_next">下一个匹配</string>
+    <string name="viewer_search_close">关闭搜索</string>
+    <string name="viewer_toggle_wrap">长行自动换行</string>
+    <string name="viewer_copy_all">复制全部</string>
+    <string name="viewer_tag_new">新文件</string>
+    <string name="viewer_tag_deleted">已删除</string>
+    <string name="viewer_tag_binary">二进制</string>
+    <string name="viewer_tag_renamed">重命名自 %1$s</string>
 </resources>

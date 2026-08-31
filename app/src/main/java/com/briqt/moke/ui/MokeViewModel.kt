@@ -571,6 +571,15 @@ class MokeViewModel(app: Application) : AndroidViewModel(app) {
     private val filesController = FilesController(app, viewModelScope)
     val filesState: StateFlow<FilesUiState> = filesController.state
 
+    // ---------- 文件查看器（文件内容 / git diff，复用文件页的 SFTP 连接） ----------
+
+    private val viewerController = FileViewerController(app, viewModelScope) { filesController.peekSession() }
+    val viewerState: StateFlow<ViewerUiState> = viewerController.state
+
+    fun openViewer(target: ViewerTarget) = viewerController.open(target)
+    fun refreshViewer() = viewerController.refresh()
+    fun closeViewer() = viewerController.close()
+
     val downloadTreeUri: StateFlow<String> = settings.downloadTreeUri
         .stateIn(viewModelScope, SharingStarted.Eagerly, "")
     val filesShowHidden: StateFlow<Boolean> = settings.filesShowHidden

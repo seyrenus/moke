@@ -26,6 +26,12 @@ data class RemoteEntry(
 /** 续传判定用的远端文件身份。 */
 data class RemoteStat(val size: Long, val mtime: Long, val isDir: Boolean)
 
+/** [SftpSession.exec] 的结果。[exitStatus] 为 -1 表示输出超长被截断、退出码未取得。 */
+data class RemoteExec(val exitStatus: Int, val stdout: String, val truncated: Boolean)
+
+/** [SftpSession.readHead] 的结果：至多 maxBytes 字节；[complete]=false 表示文件更大，只取到头部。 */
+data class FileHead(val bytes: ByteArray, val complete: Boolean)
+
 /**
  * 一条独立的 SFTP 连接。
  *
@@ -85,11 +91,30 @@ class SftpSession(
         block(client())
     } catch (t: Throwable) {
         if (closed) throw t
+        reconnect()
+        block(client())
+    }
+
+    /** 同 [withReconnect]，但把底层 SSHClient 交给 [block]——exec 在同一连接上多路复用开通道（ADR 0001）。 */
+    private fun <T> withSsh(block: (net.schmizz.sshj.SSHClient) -> T): T = try {
+        block(sshClient())
+    } catch (t: Throwable) {
+        if (closed) throw t
+        reconnect()
+        block(sshClient())
+    }
+
+    private fun sshClient(): net.schmizz.sshj.SSHClient {
+        check(!closed) { "session closed" }
+        client()   // 确保连接已建立
+        return conn!!.client
+    }
+
+    private fun reconnect() {
         runCatching { sftp?.close() }
         runCatching { conn?.close() }
         sftp = null
         conn = null
-        block(client())
     }
 
     /** 远端家目录的绝对路径（`.` 的规范化结果）。 */
@@ -116,6 +141,72 @@ class SftpSession(
 
     private fun statType(path: String): Boolean =
         client().stat(path).mode.type == FileMode.Type.DIRECTORY
+
+    /**
+     * 在文件页这条 SSH 连接上多路复用执行命令并取 stdout（ADR 0001：不另建连接、不借终端会话）。
+     * 只给 git diff 这类**只读探测**用；断线时沿浏览类语义重连重试一次（只读命令重跑无害）。
+     *
+     * [maxBytes] 是内存保护：读满即关通道让远端进程因 EPIPE 收场，不等它输出完（大仓库的
+     * `git diff` 可能远超预算）。失败/超时返回 null，与终端传输的 exec 同一口径。
+     */
+    fun exec(command: String, maxBytes: Int = MAX_EXEC_BYTES): RemoteExec? = try {
+        withSsh { ssh -> execOnce(ssh, command, maxBytes) }
+    } catch (_: Throwable) {
+        // withSsh 内部已重连重试过一次；两连皆败才到这里，按失败口径返回 null
+        null
+    }
+
+    private fun execOnce(ssh: net.schmizz.sshj.SSHClient, command: String, maxBytes: Int): RemoteExec? =
+        ssh.startSession().use { s ->
+            val cmd = s.exec(command)
+            val out = java.io.ByteArrayOutputStream()
+            val buf = ByteArray(BUFFER)
+            var total = 0
+            var truncated = false
+            cmd.inputStream.use { ins ->
+                while (total < maxBytes) {
+                    val n = ins.read(buf, 0, minOf(buf.size, maxBytes - total))
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    total += n
+                }
+                truncated = total >= maxBytes
+            }
+            if (truncated) {
+                runCatching { cmd.close() }
+                RemoteExec(exitStatus = -1, stdout = out.toString("UTF-8"), truncated = true)
+            } else {
+                cmd.join(10, java.util.concurrent.TimeUnit.SECONDS)
+                if (cmd.isOpen) {
+                    runCatching { cmd.close() }
+                    null
+                } else {
+                    RemoteExec(cmd.exitStatus, out.toString("UTF-8"), truncated = false)
+                }
+            }
+        }
+
+    /** 读取 [path] 头部至多 [maxBytes] 字节（文件查看器用；完整内容请走下载）。断线重连重试一次。 */
+    fun readHead(path: String, maxBytes: Int): FileHead = withReconnect { c ->
+        c.open(path, EnumSet.of(OpenMode.READ)).use { f ->
+            val out = java.io.ByteArrayOutputStream(minOf(maxBytes, 1 shl 20))
+            val buf = ByteArray(BUFFER)
+            var total = 0
+            var complete = false
+            while (total < maxBytes) {
+                val n = f.read(total.toLong(), buf, 0, minOf(buf.size, maxBytes - total))
+                if (n <= 0) { complete = true; break }
+                out.write(buf, 0, n)
+                total += n
+            }
+            // 恰好读满也可能是文件正好那么大：再探一个字节分辨「截断」与「EOF」。
+            if (total >= maxBytes) {
+                val probe = ByteArray(1)
+                complete = f.read(total.toLong(), probe, 0, 1) <= 0
+            }
+            FileHead(out.toByteArray(), complete)
+        }
+    }
 
     fun stat(path: String): RemoteStat? = runCatching {
         withReconnect {
@@ -210,5 +301,8 @@ class SftpSession(
     companion object {
         /** 32KB：SFTP 单包上限通常 32KB 附近，再大不会更快，但内存占用要控住（v0.1.16 OOM 的教训）。 */
         const val BUFFER = 32 * 1024
+
+        /** exec 输出的默认上限（diff 查看器口径：超过即截断并提示）。 */
+        const val MAX_EXEC_BYTES = 1024 * 1024
     }
 }

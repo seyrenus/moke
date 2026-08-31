@@ -371,4 +371,30 @@
     <string name="include_prerelease">Include pre-releases</string>
     <string name="include_prerelease_sub">Count rc pre-releases when checking for updates. They carry new features early and may be unstable.</string>
     <string name="github_repo">GitHub repository</string>
+
+    <!-- 文件查看器 / diff 查看 -->
+    <string name="viewer_diff_title">Uncommitted changes</string>
+    <string name="viewer_repo_diff">View uncommitted changes</string>
+    <string name="viewer_file_diff">View changes to this file</string>
+    <string name="viewer_binary">Binary file (%1$s) — preview not available</string>
+    <string name="viewer_truncated_head">File too large — showing the first %1$s. Download for the full content.</string>
+    <string name="viewer_diff_truncated">Too much output — showing only part of the diff.</string>
+    <string name="viewer_untracked_more">%1$d more untracked files not shown</string>
+    <string name="viewer_no_changes">No uncommitted changes</string>
+    <string name="viewer_file_no_changes">No uncommitted changes in this file</string>
+    <string name="viewer_not_a_repo">Not a git repository (or git is unavailable)</string>
+    <string name="viewer_exec_failed">Could not run git on the remote host</string>
+    <string name="viewer_disconnected">The file connection is closed — reopen Files and try again</string>
+    <string name="viewer_no_newline">no newline at end of file</string>
+    <string name="viewer_search">Search</string>
+    <string name="viewer_search_hint">Search in file</string>
+    <string name="viewer_search_prev">Previous match</string>
+    <string name="viewer_search_next">Next match</string>
+    <string name="viewer_search_close">Close search</string>
+    <string name="viewer_toggle_wrap">Wrap long lines</string>
+    <string name="viewer_copy_all">Copy all</string>
+    <string name="viewer_tag_new">new file</string>
+    <string name="viewer_tag_deleted">deleted</string>
+    <string name="viewer_tag_binary">binary</string>
+    <string name="viewer_tag_renamed">renamed from %1$s</string>
 </resources>

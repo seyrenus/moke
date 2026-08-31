@@ -145,6 +145,12 @@ class FilesController(context: Context, private val scope: CoroutineScope) {
         if (s != null) scope.launch { withContext(Dispatchers.IO) { runCatching { s.close() } } }
     }
 
+    /**
+     * 当前浏览连接（供文件查看器 / diff 查看器在其上复用同一条连接，见 ADR 0001）。
+     * 离开文件页即断开，之后为 null——查看器随文件页存活，不会在断开后取数。
+     */
+    fun peekSession(): SftpSession? = session
+
     /** 排序：目录永远在前，同类之间按用户选的维度比。 */
     fun sorted(entries: List<RemoteEntry>, sort: FilesSort, showHidden: Boolean): List<RemoteEntry> {
         val visible = if (showHidden) entries else entries.filterNot { it.name.startsWith(".") }

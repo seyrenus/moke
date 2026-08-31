@@ -318,7 +318,13 @@ public final class TerminalView extends View {
                 // not set and it logs a warning:
                 // W/InputAttributes: Unexpected input class: inputType=0x00080090 imeOptions=0x02000000
                 // https://cs.android.com/android/platform/superproject/+/android-11.0.0_r40:packages/inputmethods/LatinIME/java/src/com/android/inputmethod/latin/InputAttributes.java;l=79
-                outAttrs.inputType = InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
+                // moke: 按上游注释补上缺失的 TYPE_CLASS_TEXT（0x00080090 不是合法 AOSP 类型）。
+                // 部分厂商（小米等）按标准分类判定密码框、进而接管为系统安全键盘，无类位时
+                // 判定不中、安全键盘不弹出。补类位后即成为合法的 textVisiblePassword +
+                // noSuggestions；VISIBLE_PASSWORD 变体保留，三星键盘的规避（issue 686）不受影响。
+                outAttrs.inputType = InputType.TYPE_CLASS_TEXT
+                        | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                        | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
             } else {
                 // Using InputType.NULL is the most correct input type and avoids issues with other hacks.
                 //

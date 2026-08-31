@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CreateNewFolder
+import androidx.compose.material.icons.filled.Difference
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MoreVert
@@ -77,6 +78,7 @@ import java.util.Locale
  *
  * 它永远从属于某台主机（从终端 ⋮ 或连接列表 ⋮ 进），不是一个全局分区——见
  * `设计/文件传输-SFTP.md` §5.1。[onSendToTerminal] 为空表示不是从会话进来的，隐藏"发到终端"。
+ * 点文件进查看器（兑现「点=预览」；查看器自己决定文本还是二进制呈现），长按仍是操作菜单。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -99,6 +101,9 @@ fun FilesScreen(
     onOverwriteCancel: () -> Unit,
     onDownload: (RemoteEntry) -> Unit,
     onPickDownloadDir: () -> Unit,
+    onOpenFile: (RemoteEntry) -> Unit,
+    onOpenRepoDiff: () -> Unit,
+    onOpenFileDiff: (RemoteEntry) -> Unit,
     onSendToTerminal: ((String) -> Unit)?,
     onClearError: () -> Unit,
     onTaskResume: (String) -> Unit,
@@ -166,6 +171,14 @@ fun FilesScreen(
                                 text = { Text(stringResource(R.string.files_goto)) },
                                 onClick = { menuOpen = false; gotoOpen = true },
                             )
+                            // 未提交改动入口：浏览目录是 diff 的 -C 起点，连上之前无路径可看。
+                            if (state.path.isNotBlank()) {
+                                DropdownMenuItem(
+                                    text = { Text(stringResource(R.string.viewer_repo_diff)) },
+                                    leadingIcon = { Icon(Icons.Filled.Difference, null, Modifier.size(20.dp)) },
+                                    onClick = { menuOpen = false; onOpenRepoDiff() },
+                                )
+                            }
                             if (state.terminalPath.isNotBlank()) {
                                 DropdownMenuItem(
                                     text = { Text(stringResource(R.string.files_from_terminal)) },
@@ -260,7 +273,7 @@ fun FilesScreen(
                                 icon = if (e.isDir) Icons.Filled.Folder else Icons.AutoMirrored.Filled.InsertDriveFile,
                                 title = e.name,
                                 subtitle = subtitleOf(e),
-                                onClick = { if (e.isDir) onNavigate(e.path) else selected = e },
+                                onClick = { if (e.isDir) onNavigate(e.path) else onOpenFile(e) },
                                 onLongClick = { selected = e },
                             )
                         }
@@ -278,6 +291,7 @@ fun FilesScreen(
             canSendToTerminal = onSendToTerminal != null,
             onDismiss = { selected = null },
             onDownload = { selected = null; onDownload(e) },
+            onFileDiff = { selected = null; onOpenFileDiff(e) },
             onCopyPath = {
                 selected = null
                 clipboard.setText(AnnotatedString(e.path))
@@ -471,6 +485,7 @@ private fun EntryActions(
     canSendToTerminal: Boolean,
     onDismiss: () -> Unit,
     onDownload: () -> Unit,
+    onFileDiff: () -> Unit,
     onCopyPath: () -> Unit,
     onSendToTerminal: () -> Unit,
 ) {
@@ -500,6 +515,7 @@ private fun EntryActions(
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             if (!entry.isDir) {
                 SheetAction(Icons.Filled.Download, stringResource(R.string.files_download), onDownload)
+                SheetAction(Icons.Filled.Difference, stringResource(R.string.viewer_file_diff), onFileDiff)
                 if (!hasDownloadDir) {
                     Text(
                         stringResource(R.string.files_pick_download_dir_desc),

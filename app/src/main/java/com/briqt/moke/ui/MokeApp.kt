@@ -36,6 +36,12 @@ sealed interface Screen {
      * 也只有那种情况才谈得上把路径发回终端。
      */
     data class Files(val hostId: String, val sessionId: String?) : Screen
+
+    /**
+     * 文件查看器（文件内容 / git diff）。随文件页打开：返回总是回文件页（连接还活着），
+     * 不重复走 [MokeViewModel.openFiles]。
+     */
+    data class FileViewer(val target: ViewerTarget, val hostId: String, val sessionId: String?) : Screen
 }
 
 @Composable
@@ -86,6 +92,11 @@ fun MokeApp(vm: MokeViewModel = viewModel()) {
         vm.openFiles(host, sessionId?.let { vm.sessions.get(it) })
         screen = Screen.Files(host.id, sessionId)
     }
+    // 文件页里的查看器入口：目标在此组装（repo diff 的 -C 起点 = 当前浏览目录）。
+    val openViewer: (ViewerTarget) -> Unit = { target ->
+        val files = screen as? Screen.Files
+        screen = Screen.FileViewer(target, files?.hostId.orEmpty(), files?.sessionId)
+    }
     BackHandler(enabled = backEnabled) {
         when (screen) {
             is Screen.Fonts -> screen = Screen.Appearance
@@ -99,7 +110,49 @@ fun MokeApp(vm: MokeViewModel = viewModel()) {
                 vm.closeFiles()
                 screen = (screen as Screen.Files).sessionId?.let { Screen.Terminal(it) } ?: Screen.Home
             }
+            // 查看器叠在文件页上，返回回文件页（不断开连接，不重新建连）。
+            is Screen.FileViewer -> {
+                vm.closeViewer()
+                screen = (screen as Screen.FileViewer).let { Screen.Files(it.hostId, it.sessionId) }
+            }
             is Screen.Home -> homeTab = HomeTab.Connections
+        }
+    }
+
+    // 下载：目录选择只问一次（拿到后持久化读写授权，之后静默落盘）。文件页与查看器的
+    // 二进制下载共用同一套判定，故上提到路由层。
+    val treeUri by vm.downloadTreeUri.collectAsState()
+    val needsDir by vm.needsDownloadDir.collectAsState()
+    var pendingDownload by remember { mutableStateOf<com.briqt.moke.terminal.sftp.RemoteEntry?>(null) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val treePicker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                        android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                )
+            }
+            vm.setDownloadTree(uri.toString())
+            pendingDownload?.let { vm.download(it, uri) }
+        }
+        pendingDownload = null
+    }
+    val downloadEntry: (com.briqt.moke.terminal.sftp.RemoteEntry) -> Unit = { entry ->
+        val saved = treeUri.takeIf { it.isNotBlank() }
+        when {
+            // 用户自己指定过目录 → 用它
+            saved != null -> vm.download(entry, android.net.Uri.parse(saved))
+            // Android 10+ → 默认落「下载/Moke」，不打断
+            !needsDir -> vm.download(entry, null)
+            // 老系统没有免权限通道，只能先问一次
+            else -> {
+                pendingDownload = entry
+                treePicker.launch(null)
+            }
         }
     }
 
@@ -291,28 +344,7 @@ fun MokeApp(vm: MokeViewModel = viewModel()) {
             val tasks by vm.transfers.tasks.collectAsState()
             val sort by vm.filesSort.collectAsState()
             val showHidden by vm.filesShowHidden.collectAsState()
-            val treeUri by vm.downloadTreeUri.collectAsState()
             val uploadConflict by vm.uploadConflict.collectAsState()
-            val needsDir by vm.needsDownloadDir.collectAsState()
-            // 下载目录只问一次：拿到后持久化读写授权，之后静默落盘。
-            var pendingDownload by remember { mutableStateOf<com.briqt.moke.terminal.sftp.RemoteEntry?>(null) }
-            val context = androidx.compose.ui.platform.LocalContext.current
-            val treePicker = androidx.activity.compose.rememberLauncherForActivityResult(
-                androidx.activity.result.contract.ActivityResultContracts.OpenDocumentTree()
-            ) { uri ->
-                if (uri != null) {
-                    runCatching {
-                        context.contentResolver.takePersistableUriPermission(
-                            uri,
-                            android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                                android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
-                        )
-                    }
-                    vm.setDownloadTree(uri.toString())
-                    pendingDownload?.let { vm.download(it, uri) }
-                }
-                pendingDownload = null
-            }
             FilesScreen(
                 state = filesState,
                 tasks = tasks,
@@ -330,21 +362,11 @@ fun MokeApp(vm: MokeViewModel = viewModel()) {
                 overwrite = uploadConflict,
                 onOverwriteConfirm = { vm.confirmUploadOverwrite() },
                 onOverwriteCancel = { vm.dismissUploadConflict() },
-                onDownload = { entry ->
-                    val saved = treeUri.takeIf { it.isNotBlank() }
-                    when {
-                        // 用户自己指定过目录 → 用它
-                        saved != null -> vm.download(entry, android.net.Uri.parse(saved))
-                        // Android 10+ → 默认落「下载/Moke」，不打断
-                        !needsDir -> vm.download(entry, null)
-                        // 老系统没有免权限通道，只能先问一次
-                        else -> {
-                            pendingDownload = entry
-                            treePicker.launch(null)
-                        }
-                    }
-                },
+                onDownload = downloadEntry,
                 onPickDownloadDir = { pendingDownload = null; treePicker.launch(null) },
+                onOpenFile = { openViewer(ViewerTarget.File(it)) },
+                onOpenRepoDiff = { openViewer(ViewerTarget.RepoDiff(filesState.path)) },
+                onOpenFileDiff = { openViewer(ViewerTarget.FileDiff(it)) },
                 onSendToTerminal = s.sessionId?.let { id ->
                     { path: String ->
                         vm.sendToTerminal(id, path)
@@ -360,6 +382,28 @@ fun MokeApp(vm: MokeViewModel = viewModel()) {
                 onBack = {
                     vm.closeFiles()
                     screen = s.sessionId?.let { Screen.Terminal(it) } ?: Screen.Home
+                },
+            )
+        }
+
+        is Screen.FileViewer -> {
+            val viewerState by vm.viewerState.collectAsState()
+            // 二进制文件的下载引导：触发后回文件页（传输队列条在那里）。
+            val binaryEntry = (s.target as? ViewerTarget.File)?.entry
+                ?: (s.target as? ViewerTarget.FileDiff)?.entry
+            ViewerScreen(
+                state = viewerState,
+                onBack = {
+                    vm.closeViewer()
+                    screen = Screen.Files(s.hostId, s.sessionId)
+                },
+                onRefresh = { vm.refreshViewer() },
+                onDownloadBinary = binaryEntry?.let { entry ->
+                    {
+                        downloadEntry(entry)
+                        vm.closeViewer()
+                        screen = Screen.Files(s.hostId, s.sessionId)
+                    }
                 },
             )
         }
